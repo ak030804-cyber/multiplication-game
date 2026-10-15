@@ -304,6 +304,40 @@
     text-decoration: underline;
     display: none;
   }
+  /* Multi-step helpers */
+  .steps {
+    background: #f1f9ff;
+    border: 2px dashed #74b9ff;
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin: 10px 0 1rem;
+    text-align: left;
+    font-size: 0.95rem;
+    color: #2d3436;
+  }
+  .steps .step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+  }
+  .steps .step-num {
+    background: #74b9ff;
+    color: white;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+  .level-btn.multi {
+    background: linear-gradient(135deg, #a29bfe, #6c5ce7);
+    color: white;
+  }
 </style>
 </head>
 <body>
@@ -323,6 +357,9 @@
       </button>
       <button class="level-btn" data-level="hard">
         <span class="lvl-emoji">🚀</span> 進階：1～9 的乘法表
+      </button>
+      <button class="level-btn multi" data-level="multi">
+        <span class="lvl-emoji">🧮</span> 多步驟：加乘、找錢、分配
       </button>
     </div>
   </div>
@@ -351,6 +388,7 @@
       <div id="sceneText">每盤有 3 個蘋果...</div>
       <span class="question" id="question">請問 4 盤共有多少個蘋果？</span>
     </div>
+    <div class="steps" id="steps" style="display:none;"></div>
     <div class="visual-aid" id="visualAid"></div>
     <div class="options" id="options"></div>
     <div class="feedback" id="feedback"></div>
@@ -486,7 +524,127 @@ const TEMPLATES = [
   }),
 ];
 
+// =========================================
+// 多步驟題庫（加乘、乘加、找錢、倍數+比較）
+// =========================================
+const MULTI_STEP_TEMPLATES = [
+  // 已有 X 個，加 Y 袋每袋 Z 個 → Z*Y + X
+  (item, z, y, x) => ({
+    text: `小明本來有 ${x} 個${item.name}，媽媽再買咗 ${y} 袋返嚟，每袋 ${z} 個，小明而家有幾多個${item.name}？`,
+    icon: item.icon,
+    answer: z * y + x,
+    steps: [`袋裝 ${z} × ${y} = <strong>${z * y}</strong> 個`, `原本 ${x} 個 + ${z * y} 個 = <strong>${z * y + x}</strong> 個`],
+    visual: () => `
+      <div class="visual-group">原本：${item.emoji.repeat(Math.min(x, 12))}${x > 12 ? '…' : ''} <small>(${x})</small></div>
+      <div style="align-self:center;font-size:1.4rem;">＋</div>
+      ${Array(Math.min(y, 4)).fill(0).map(() => `<div class="visual-group">${item.emoji.repeat(z)}</div>`).join('')}
+      <div style="align-self:center;font-size:1.4rem;">＝</div>
+      <div class="visual-group" style="background:#ffeaa7;">共 ${z * y + x} 個 ${item.emoji}</div>
+    `,
+  }),
+  // 找錢：總共 M 元，買 Y 個每個 Z 元 → M - Z*Y
+  (item, z, y, m) => ({
+    text: `媽媽有 ${m} 元，去士多買咗 ${y} 個${item.name}，每個 ${z} 元，媽媽剩幾多錢？`,
+    icon: '💰',
+    answer: m - z * y,
+    steps: [`${z} × ${y} = <strong>${z * y}</strong> 元（用咗幾錢）`, `${m} - ${z * y} = <strong>${m - z * y}</strong> 元`],
+    visual: () => `
+      <div class="visual-group">💰 ${m} 元</div>
+      <div style="align-self:center;font-size:1.4rem;">－</div>
+      <div class="visual-group">${item.icon} ${y} 個 × ${z} 元 = ${z * y} 元</div>
+      <div style="align-self:center;font-size:1.4rem;">＝</div>
+      <div class="visual-group" style="background:#ffeaa7;">剩 ${m - z * y} 元</div>
+    `,
+  }),
+  // 買咗食咗：買 Y 盒每盒 Z 個，食 X 個 → Z*Y - X
+  (item, z, y, x) => ({
+    text: `媽媽買咗 ${y} 盒${item.name}，每盒 ${z} 個，食咗 ${x} 個，仲剩幾多個？`,
+    icon: item.icon,
+    answer: z * y - x,
+    steps: [`${z} × ${y} = <strong>${z * y}</strong> 個（買咗）`, `${z * y} - ${x} = <strong>${z * y - x}</strong> 個（剩）`],
+    visual: () => `
+      ${Array(Math.min(y, 4)).fill(0).map(() => `<div class="visual-group">${item.emoji.repeat(z)}</div>`).join('')}
+      <div style="align-self:center;font-size:1.4rem;">－</div>
+      <div class="visual-group">食咗 ${x} 個 ${item.emoji.repeat(Math.min(x, 8))}</div>
+      <div style="align-self:center;font-size:1.4rem;">＝</div>
+      <div class="visual-group" style="background:#ffeaa7;">剩 ${z * y - x} 個</div>
+    `,
+  }),
+  // 倍數 + 加：弟弟 X 個，哥哥 Y 倍，總共 → X + X*Y
+  (item, x, y) => ({
+    text: `弟弟有 ${x} 個${item.name}，哥哥有嘅係弟弟嘅 ${y} 倍，佢哋一共有幾多個${item.name}？`,
+    icon: item.icon,
+    answer: x + x * y,
+    steps: [`哥哥 = ${x} × ${y} = <strong>${x * y}</strong> 個`, `弟弟 ${x} 個 + 哥哥 ${x * y} 個 = <strong>${x + x * y}</strong> 個`],
+    visual: () => `
+      <div class="visual-group">弟弟：${item.emoji.repeat(x)} <small>(${x})</small></div>
+      <div style="align-self:center;font-size:1.4rem;">＋</div>
+      <div class="visual-group">哥哥：${item.emoji.repeat(Math.min(x * y, 20))} <small>(${x * y})</small></div>
+      <div style="align-self:center;font-size:1.4rem;">＝</div>
+      <div class="visual-group" style="background:#ffeaa7;">共 ${x + x * y} 個</div>
+    `,
+  }),
+  // 兩組相加：紅色 A 個一盒 X 盒，藍色 B 個一盒 Y 盒，共幾個 → A*X + B*Y
+  (item1, item2, ax, ay, bx, by) => ({
+    text: `小明有 ${ax} 個${item1.name}一盒，共 ${ay} 盒；又有 ${bx} 個${item2.name}一盒，共 ${by} 盒。佢一共有幾多個？`,
+    icon: item1.icon,
+    answer: ax * ay + bx * by,
+    steps: [`${item1.name} = ${ax} × ${ay} = <strong>${ax * ay}</strong> 個`, `${item2.name} = ${bx} × ${by} = <strong>${bx * by}</strong> 個`, `${ax * ay} + ${bx * by} = <strong>${ax * ay + bx * by}</strong> 個`],
+    visual: () => `
+      <div class="visual-group">${item1.icon} ${ax} × ${ay} = ${ax * ay}</div>
+      <div style="align-self:center;font-size:1.4rem;">＋</div>
+      <div class="visual-group">${item2.icon} ${bx} × ${by} = ${bx * by}</div>
+      <div style="align-self:center;font-size:1.4rem;">＝</div>
+      <div class="visual-group" style="background:#ffeaa7;">共 ${ax * ay + bx * by} 個</div>
+    `,
+  }),
+];
+
+function generateMultiStepQuestion() {
+  const keys = Object.keys(SCENARIOS);
+  const tplIdx = randInt(0, MULTI_STEP_TEMPLATES.length - 1);
+  const tpl = MULTI_STEP_TEMPLATES[tplIdx];
+  let result, answer;
+  let tries = 0;
+  while (tries < 30) {
+    const item1 = SCENARIOS[keys[randInt(0, keys.length - 1)]];
+    const item2 = SCENARIOS[keys[randInt(0, keys.length - 1)]];
+    if (tplIdx === 0) {
+      const z = randInt(2, 6), y = randInt(2, 5), x = randInt(2, 9);
+      result = tpl(item1, z, y, x);
+    } else if (tplIdx === 1) {
+      const z = randInt(2, 5), y = randInt(2, 4);
+      const m = z * y + randInt(5, 20);
+      result = tpl(item1, z, y, m);
+    } else if (tplIdx === 2) {
+      const z = randInt(2, 6), y = randInt(2, 5);
+      const x = randInt(2, Math.max(2, z * y - 2));
+      result = tpl(item1, z, y, x);
+    } else if (tplIdx === 3) {
+      const x = randInt(2, 6), y = randInt(2, 5);
+      result = tpl(item1, x, y);
+    } else {
+      const ax = randInt(2, 5), ay = randInt(2, 4);
+      const bx = randInt(2, 5), by = randInt(2, 4);
+      result = tpl(item1, item2, ax, ay, bx, by);
+    }
+    answer = result.answer;
+    if (answer > 0 && answer <= 50) break;
+    tries++;
+  }
+  const wrongOptions = new Set();
+  while (wrongOptions.size < 3) {
+    const offset = randInt(-12, 12);
+    if (offset === 0) continue;
+    const wrong = answer + offset;
+    if (wrong > 0 && wrong !== answer) wrongOptions.add(wrong);
+  }
+  const options = shuffle([answer, ...wrongOptions]);
+  return { text: result.text, icon: result.icon, visual: result.visual(), steps: result.steps, answer, options };
+}
+
 function generateQuestion(level) {
+  if (level === 'multi') return generateMultiStepQuestion();
   const keys = Object.keys(SCENARIOS);
   const item = SCENARIOS[keys[randInt(0, keys.length - 1)]];
   const multipliers = getMultipliers(level);
@@ -589,6 +747,14 @@ function renderQuestion() {
   document.getElementById('sceneEmoji').textContent = q.icon.slice(0, 2) || '📝';
   document.getElementById('sceneText').innerHTML = q.text;
   document.getElementById('visualAid').innerHTML = q.visual;
+  // 多步驟：顯示步驟提示
+  const stepsEl = document.getElementById('steps');
+  if (q.steps && q.steps.length) {
+    stepsEl.innerHTML = q.steps.map((s, i) => `<div class="step"><span class="step-num">${i + 1}</span><span>${s}</span></div>`).join('');
+    stepsEl.style.display = 'block';
+  } else {
+    stepsEl.style.display = 'none';
+  }
   const feedback = document.getElementById('feedback');
   feedback.textContent = '';
   feedback.className = 'feedback';
